@@ -1,0 +1,13 @@
+apiVersion: v2
+name: rhoso18-openstack
+description: RHOSO18 OpenStack on OpenShift deployment — networking, storage, and control plane
+type: application
+version: 0.1.0
+appVersion: "18.0"
+keywords:
+  - openstack
+  - rhoso
+  - ironic
+  - neutron
+maintainers:
+  - name: CCI-MOC

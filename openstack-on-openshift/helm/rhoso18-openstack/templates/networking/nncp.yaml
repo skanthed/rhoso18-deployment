@@ -1,0 +1,118 @@
+{{- $v := .Values }}
+{{- range $v.nodes }}
+---
+apiVersion: nmstate.io/v1
+kind: NodeNetworkConfigurationPolicy
+metadata:
+  name: nncp-{{ .name }}
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: {{ .hostname }}
+
+  desiredState:
+    interfaces:
+
+      # --------------------------------------------------
+      # RHOSO Control Plane and Service Networks ({{ $v.networks.ctlplane.nic }})
+      # --------------------------------------------------
+      - name: {{ $v.networks.ctlplane.nic }}
+        description: RHOSO control plane and service VLAN trunk
+        type: ethernet
+        state: up
+        mtu: {{ $v.mtu }}
+        ipv4:
+          enabled: true
+          dhcp: false
+          address:
+            - ip: {{ .ctlplane.ip }}
+              prefix-length: {{ $v.networks.ctlplane.prefixLength }}
+        ipv6:
+          enabled: false
+
+      # Internal API
+      - name: internalapi
+        description: Internal API VLAN {{ $v.networks.internalapi.vlan }}
+        type: vlan
+        state: up
+        mtu: {{ $v.mtu }}
+        vlan:
+          base-iface: {{ $v.networks.internalapi.nic }}
+          id: {{ $v.networks.internalapi.vlan }}
+          reorder-headers: true
+        ipv4:
+          enabled: true
+          dhcp: false
+          address:
+            - ip: {{ .internalapi.ip }}
+              prefix-length: {{ $v.networks.internalapi.prefixLength }}
+        ipv6:
+          enabled: false
+
+      # Tenant
+      - name: tenant
+        description: Tenant VLAN {{ $v.networks.tenant.vlan }}
+        type: vlan
+        state: up
+        mtu: {{ $v.mtu }}
+        vlan:
+          base-iface: {{ $v.networks.tenant.nic }}
+          id: {{ $v.networks.tenant.vlan }}
+          reorder-headers: true
+        ipv4:
+          enabled: true
+          dhcp: false
+          address:
+            - ip: {{ .tenant.ip }}
+              prefix-length: {{ $v.networks.tenant.prefixLength }}
+        ipv6:
+          enabled: false
+
+
+      # --------------------------------------------------
+      # Separate physical interface for Ironic
+      # --------------------------------------------------
+      - description: ironic interface
+        name: {{ $v.networks.ironic.nic }}
+        mtu: {{ $v.mtu }}
+        state: up
+        type: ethernet
+        ipv4:
+          enabled: false
+          dhcp: false
+        ipv6:
+          enabled: false
+
+      - name: {{ $v.networks.ironic.bridge }}
+        type: linux-bridge
+        description: Ironic provisioning bridge
+        bridge:
+          options:
+            stp:
+              enabled: false
+          port:
+            - name: {{ $v.networks.ironic.nic }}
+              vlan: {}
+        ipv4:
+          enabled: false
+        ipv6:
+          enabled: false
+        mtu: {{ $v.mtu }}
+        state: up
+
+      - name: {{ $v.networks.ironic.bridge }}.{{ $v.networks.ironic.vlan }}
+        type: vlan
+        description: Ironic provisioning VLAN {{ $v.networks.ironic.vlan }}
+        state: up
+        vlan:
+          base-iface: {{ $v.networks.ironic.bridge }}
+          id: {{ $v.networks.ironic.vlan }}
+        ipv4:
+          address:
+            - ip: {{ .ironic.ip }}
+              prefix-length: {{ $v.networks.ironic.prefixLength }}
+          dhcp: false
+          enabled: true
+        ipv6:
+          enabled: false
+        mtu: {{ $v.mtu }}
+{{- end }}

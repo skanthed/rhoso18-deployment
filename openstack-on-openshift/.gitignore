@@ -1,0 +1,7 @@
+# Generated manifests — recreated by helm template; never commit
+generated/
+
+
+# Populated credential files — never commit
+osp-secret.yaml
+neutron-switch-config.yaml

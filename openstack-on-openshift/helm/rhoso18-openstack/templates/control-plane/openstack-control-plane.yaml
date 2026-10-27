@@ -1,39 +1,42 @@
+{{- $v := .Values }}
 ---
 apiVersion: core.openstack.org/v1beta1
 kind: OpenStackControlPlane
 metadata:
   name: openstack-control-plane
-  namespace: openstack
+  namespace: {{ $v.openstack.namespace }}
 spec:
-  secret: osp-secret
-  storageClass: lvms-local-storage-osac
+  secret: {{ $v.openstack.secret }}
+  storageClass: {{ $v.storage.storageClass }}
 
-# DNS service
+
+  # DNS service
   dns:
     template:
-      replicas: 1
+      replicas: 3
       options:
         - key: server
           values:
-            - 192.168.122.1
+            - {{ $v.networks.ctlplane.dnsUpstream }}
     override:
         service:
           metadata:
             annotations:
               metallb.universe.tf/address-pool: ctlplane
               metallb.universe.tf/allow-shared-ip: ctlplane
-              metallb.universe.tf/loadBalancerIPs: 192.168.122.80
+              metallb.universe.tf/loadBalancerIPs: {{ $v.vips.ctlplane }}
           spec:
             type: LoadBalancer
-  
+
+
   # Identity service (keystone)
   keystone:
     apiOverride:
       route: {}
     template:
       databaseInstance: openstack
-      secret: osp-secret
-      replicas: 1
+      secret: {{ $v.openstack.secret }}
+      replicas: 3
       override:
         service:
           internal:
@@ -41,14 +44,14 @@ spec:
               annotations:
                 metallb.universe.tf/address-pool: internalapi
                 metallb.universe.tf/allow-shared-ip: internalapi
-                metallb.universe.tf/loadBalancerIPs: 172.17.0.80
+                metallb.universe.tf/loadBalancerIPs: {{ $v.vips.internalapi }}
             spec:
               type: LoadBalancer
 
 
   # Image service (glance)
   glance:
-    enabled: false
+    enabled: true
     apiOverrides:
       default:
         route: {}
@@ -56,13 +59,13 @@ spec:
       databaseInstance: openstack
       storage:
         storageRequest: 10G
-        storageClass: lvms-local-storage-osac
-      secret: osp-secret
+        storageClass: {{ $v.storage.storageClass }}
+      secret: {{ $v.openstack.secret }}
       keystoneEndpoint: default
       glanceAPIs:
         default:
-          replicas: 0
-          layout: single
+          replicas: 3
+          type: single
           override:
             service:
               internal:
@@ -70,26 +73,27 @@ spec:
                   annotations:
                     metallb.universe.tf/address-pool: internalapi
                     metallb.universe.tf/allow-shared-ip: internalapi
-                    metallb.universe.tf/loadBalancerIPs: 172.17.0.80
+                    metallb.universe.tf/loadBalancerIPs: {{ $v.vips.internalapi }}
                 spec:
                   type: LoadBalancer
           networkAttachments: []
-  
+
+
   # Networking service (neutron)
   neutron:
     apiOverride:
       route: {}
     template:
-      replicas: 1
-      customServiceConfig: |   
+      replicas: 3
+      customServiceConfig: |
         [agent]
         report_interval = 300
 
-        [ml2_type_flat]
-        flat_networks = ironic
+        # [ml2_type_flat]
+        # flat_networks = ironic
 
         [ml2_type_vlan]
-        network_vlan_ranges = tenant-baremetal:51:100
+        network_vlan_ranges = bmnet:51:100
 
         [ml2]
         type_drivers = geneve,vxlan,vlan,flat,local
@@ -111,7 +115,7 @@ spec:
       - ovn
       - genericswitch
       - baremetal
-      secret: osp-secret
+      secret: {{ $v.openstack.secret }}
       override:
         service:
           internal:
@@ -119,7 +123,7 @@ spec:
               annotations:
                 metallb.universe.tf/address-pool: internalapi
                 metallb.universe.tf/allow-shared-ip: internalapi
-                metallb.universe.tf/loadBalancerIPs: 172.17.0.80
+                metallb.universe.tf/loadBalancerIPs: {{ $v.vips.internalapi }}
             spec:
               type: LoadBalancer
       networkAttachments:
@@ -133,7 +137,7 @@ spec:
       ovnController:
         networkAttachment: tenant
         nicMappings:
-          ironic: ironic
+          bmnet: {{ $v.networks.ironic.bridge }}
       ovnDBCluster:
         ovndbcluster-nb:
           replicas: 1
@@ -147,20 +151,22 @@ spec:
           networkAttachment: internalapi
       ovnNorthd: {}
 
+
   # Memcached cluster
   memcached:
     templates:
       memcached:
         replicas: 1
-  
+
 
   # MariaDB Galera clusters (control plane)
   galera:
     templates:
       openstack:
-        storageRequest: 5000M
-        secret: osp-secret
+        storageRequest: 5Gi
+        secret: {{ $v.openstack.secret }}
         replicas: 1
+
 
   # RabbitMQ clusters (control plane)
   rabbitmq:
@@ -172,9 +178,10 @@ spec:
             metadata:
               annotations:
                 metallb.universe.tf/address-pool: internalapi
-                metallb.universe.tf/loadBalancerIPs: 172.17.0.85
+                metallb.universe.tf/loadBalancerIPs: {{ $v.vips.rabbitmq }}
             spec:
               type: LoadBalancer
+
 
   # Bare metal provisioning (Ironic)
   ironic:
@@ -182,18 +189,18 @@ spec:
     template:
       rpcTransport: oslo
       databaseInstance: openstack
-      secret: osp-secret
+      secret: {{ $v.openstack.secret }}
       ironicAPI:
-        replicas: 1
-        customServiceConfig: |  
+        replicas: 3
+        customServiceConfig: |
           [DEFAULT]
           default_network_interface = neutron
 
           [neutron]
-          cleaning_network = <ironic_network_uuid>
-          provisioning_network = <ironic_network_uuid>
-          inspection_network = <ironic_network_uuid>
-          rescuing_network = <ironic_network_uuid>
+          cleaning_network = {{ if $v.openstack.ironic.networkUUID }}{{ $v.openstack.ironic.networkUUID }}{{ else }}<ironic_network_uuid>{{ end }}
+          provisioning_network = {{ if $v.openstack.ironic.networkUUID }}{{ $v.openstack.ironic.networkUUID }}{{ else }}<ironic_network_uuid>{{ end }}
+          inspection_network = {{ if $v.openstack.ironic.networkUUID }}{{ $v.openstack.ironic.networkUUID }}{{ else }}<ironic_network_uuid>{{ end }}
+          rescuing_network = {{ if $v.openstack.ironic.networkUUID }}{{ $v.openstack.ironic.networkUUID }}{{ else }}<ironic_network_uuid>{{ end }}
         override:
           service:
             internal:
@@ -201,37 +208,33 @@ spec:
                 annotations:
                   metallb.universe.tf/address-pool: ironic
                   metallb.universe.tf/allow-shared-ip: ironic
-                  metallb.universe.tf/loadBalancerIPs: 172.20.1.80
+                  metallb.universe.tf/loadBalancerIPs: {{ $v.vips.ironic }}
               spec:
                 type: LoadBalancer
       ironicConductors:
-        - replicas: 1
+        - replicas: 3
           customServiceConfig: |
             [DEFAULT]
             default_network_interface = neutron
 
             [neutron]
-            cleaning_network = <ironic_network_uuid>
-            provisioning_network = <ironic_network_uuid>
-            inspection_network = <ironic_network_uuid>
-            rescuing_network = <ironic_network_uuid>
+            cleaning_network = {{ if $v.openstack.ironic.networkUUID }}{{ $v.openstack.ironic.networkUUID }}{{ else }}<ironic_network_uuid>{{ end }}
+            provisioning_network = {{ if $v.openstack.ironic.networkUUID }}{{ $v.openstack.ironic.networkUUID }}{{ else }}<ironic_network_uuid>{{ end }}
+            inspection_network = {{ if $v.openstack.ironic.networkUUID }}{{ $v.openstack.ironic.networkUUID }}{{ else }}<ironic_network_uuid>{{ end }}
+            rescuing_network = {{ if $v.openstack.ironic.networkUUID }}{{ $v.openstack.ironic.networkUUID }}{{ else }}<ironic_network_uuid>{{ end }}
           storageRequest: 10G
           networkAttachments:
             - ironic
           provisionNetwork: ironic
       ironicInspector:
-        replicas: 1
+        replicas: 0
         networkAttachments:
           - ironic
         inspectionNetwork: ironic
-        dhcpRanges:
-          - name: inspector-range
-            cidr: 172.20.1.0/24
-            start: 172.20.1.190
-            end: 172.20.1.199
 
       ironicNeutronAgent:
-        replicas: 1
+        replicas: 3
+
 
   cinder:
     enabled: false
@@ -251,4 +254,3 @@ spec:
     enabled: false
   manila:
     enabled: false
-

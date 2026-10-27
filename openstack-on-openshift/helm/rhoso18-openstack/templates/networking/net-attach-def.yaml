@@ -1,0 +1,103 @@
+{{- $v := .Values }}
+---
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: internalapi
+  namespace: {{ $v.openstack.namespace }}
+spec:
+  config: |
+    {
+      "cniVersion": "0.3.1",
+      "name": "internalapi",
+      "type": "{{ $v.networks.internalapi.nad.type }}",
+      "master": "{{ $v.networks.internalapi.nad.master }}",
+      "ipam": {
+        "type": "whereabouts",
+        "range": "{{ $v.networks.internalapi.cidr }}",
+        "range_start": "{{ $v.networks.internalapi.nad.start }}",
+        "range_end": "{{ $v.networks.internalapi.nad.end }}"
+      }
+    }
+
+---
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: ctlplane
+  namespace: {{ $v.openstack.namespace }}
+spec:
+  config: |
+    {
+      "cniVersion": "0.3.1",
+      "name": "ctlplane",
+      "type": "{{ $v.networks.ctlplane.nad.type }}",
+      "master": "{{ $v.networks.ctlplane.nad.master }}",
+      "ipam": {
+        "type": "whereabouts",
+        "range": "{{ $v.networks.ctlplane.cidr }}",
+        "range_start": "{{ $v.networks.ctlplane.nad.start }}",
+        "range_end": "{{ $v.networks.ctlplane.nad.end }}"
+      }
+    }
+
+---
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: tenant
+  namespace: {{ $v.openstack.namespace }}
+spec:
+  config: |
+    {
+      "cniVersion": "0.3.1",
+      "name": "tenant",
+      "type": "{{ $v.networks.tenant.nad.type }}",
+      "master": "{{ $v.networks.tenant.nad.master }}",
+      "ipam": {
+        "type": "whereabouts",
+        "range": "{{ $v.networks.tenant.cidr }}",
+        "range_start": "{{ $v.networks.tenant.nad.start }}",
+        "range_end": "{{ $v.networks.tenant.nad.end }}"
+      }
+    }
+
+---
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  labels:
+    osp/net: bmnet
+    osp/net-attach-def-type: standard
+  name: bmnet
+  namespace: {{ $v.openstack.namespace }}
+spec:
+  config: |
+    {
+      "cniVersion": "0.3.1",
+      "name": "bmnet",
+      "type": "bridge",
+      "bridge": "{{ $v.networks.ironic.bmnet.bridge }}",
+      "ipam": {}
+    }
+
+---
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: ironic
+  namespace: {{ $v.openstack.namespace }}
+spec:
+  config: |
+    {
+      "cniVersion": "0.3.1",
+      "name": "ironic",
+      "type": "{{ $v.networks.ironic.nad.type }}",
+      "master": "{{ $v.networks.ironic.nad.master }}",
+      "ipam": {
+        "type": "whereabouts",
+        "range": "{{ $v.networks.ironic.cidr }}",
+        "range_start": "{{ $v.networks.ironic.nad.start }}",
+        "range_end": "{{ $v.networks.ironic.nad.end }}"
+      }
+    }

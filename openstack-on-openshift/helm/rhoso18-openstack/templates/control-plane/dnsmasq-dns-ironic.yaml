@@ -1,4 +1,4 @@
----
+{{- $v := .Values }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -7,9 +7,9 @@ metadata:
     metallb.io/ip-allocated-from-pool: ironic
     metallb.universe.tf/address-pool: ironic
     metallb.universe.tf/allow-shared-ip: ironic
-    metallb.universe.tf/loadBalancerIPs: 172.20.1.80
+    metallb.universe.tf/loadBalancerIPs: {{ $v.vips.ironic }}
   name: dnsmasq-dns-ironic
-  namespace: openstack
+  namespace: {{ $v.openstack.namespace }}
   labels:
     service: dnsmasq
 spec:

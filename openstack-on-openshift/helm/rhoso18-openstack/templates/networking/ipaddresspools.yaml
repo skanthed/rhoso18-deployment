@@ -3,10 +3,10 @@ apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
   name: ctlplane
-  namespace: metallb-system
+  namespace: {{ .Values.metallb.namespace }}
 spec:
   addresses:
-    - 192.168.122.80-192.168.122.90
+    - {{ .Values.networks.ctlplane.metallbPool }}
   autoAssign: true
   avoidBuggyIPs: false
 ---
@@ -14,10 +14,10 @@ apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
   name: internalapi
-  namespace: metallb-system
+  namespace: {{ .Values.metallb.namespace }}
 spec:
   addresses:
-    - 172.17.0.80-172.17.0.90
+    - {{ .Values.networks.internalapi.metallbPool }}
   autoAssign: true
   avoidBuggyIPs: false
 ---
@@ -25,10 +25,10 @@ apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
   name: tenant
-  namespace: metallb-system
+  namespace: {{ .Values.metallb.namespace }}
 spec:
   addresses:
-    - 172.19.0.80-172.19.0.90
+    - {{ .Values.networks.tenant.metallbPool }}
   autoAssign: true
   avoidBuggyIPs: false
 ---
@@ -36,9 +36,9 @@ apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
   name: ironic
-  namespace: metallb-system
+  namespace: {{ .Values.metallb.namespace }}
 spec:
   addresses:
-    - 172.20.1.80-172.20.1.90
+    - {{ .Values.networks.ironic.metallbPool }}
   autoAssign: true
   avoidBuggyIPs: false

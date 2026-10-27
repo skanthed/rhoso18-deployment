@@ -1,26 +1,33 @@
 ## RHOSO18 OpenStack on OpenShift Deployment Guide
 
+This document provides a step-by-step guide for deploying Red Hat OpenStack
+Services on OpenShift (RHOSO18). It captures the exact sequence of actions,
+configurations, and validation steps required for a repeatable deployment.
 
-This document provides a comprehensive, step-by-step implementation guide for deploying Red Hat OpenStack Services on OpenShift (RHOSO18) within an OpenShift cluster environment.
+Helm is used only to generate Kubernetes manifests from
+`helm/rhoso18-openstack/values.yaml`. Apply generated manifests with `oc apply`.
+Do not use `helm install` or `helm upgrade`.
 
-It captures the exact sequence of actions, configurations, and validation steps followed during the deployment. The objective is to establish a repeatable and standardized deployment process for us.
-
+---
 
 #### 1. Apply Required Operator Manifests
 
 ```bash
-# Apply operator files
-
-oc apply -f operators/cert-manager-install.yaml
-oc apply -f operators/cluster-observability-install.yaml
-oc apply -f operators/metallb-install.yaml
-oc apply -f operators/metallb-instance.yaml
-oc apply -f operators/nmstate-install.yaml
-oc apply -f operators/nmstate-instance.yaml
+oc apply -f prerequisites/operators/cert-manager-install.yaml
+oc apply -f prerequisites/operators/cluster-observability-install.yaml
+oc apply -f prerequisites/operators/metallb-install.yaml
+oc apply -f prerequisites/operators/metallb-instance.yaml
+oc apply -f prerequisites/operators/nmstate-install.yaml
+oc apply -f prerequisites/operators/nmstate-instance.yaml
+oc apply -f prerequisites/storage/lvms-install.yaml
 ```
+
+Install the OpenStack Operator from the OpenShift OperatorHub. The operator is
+ready when its ClusterServiceVersion shows `Phase: Succeeded`.
 
 ##### Verify:
 ```bash
+oc get csv --all-namespaces | grep -E 'cert-manager|nmstate|metallb|observability|lvms|openstack'
 oc get pods -A | grep -E 'cert-manager|nmstate|metallb|observability'
 ```
 
@@ -29,103 +36,133 @@ oc get pods -A | grep -E 'cert-manager|nmstate|metallb|observability'
 #### 2. Secrets and Service Setup
 
 ```bash
-Install OpenStack Operator and create an instance of the Operator initialization resource. The OpenStack Operator is ready to use when the Status of the openstack instance is Conditions: Ready.
-
 oc new-project openstack
 oc get namespace openstack -ojsonpath='{.metadata.labels}' | jq
 oc label ns openstack security.openshift.io/scc.podSecurityLabelSync=false --overwrite
 oc label ns openstack pod-security.kubernetes.io/enforce=privileged --overwrite
-
 oc project openstack
+```
 
-oc create -f openstack_service_secret.yaml -n openstack
+Copy the example secret files, populate them with real credentials, and apply.
+Never commit files that contain real passwords or switch credentials.
+
+```bash
+cp prerequisites/secrets/osp-secret.yaml.example osp-secret.yaml
+# Edit osp-secret.yaml — replace every <base64-encoded-password> with a real value:
+#   echo -n 'YourPassword' | base64
+oc apply -f osp-secret.yaml -n openstack
 oc describe secret osp-secret -n openstack
+
+cp prerequisites/secrets/neutron-switch-config.yaml.example neutron-switch-config.yaml
+# Edit neutron-switch-config.yaml — fill in switch IPs, credentials, and port names
+oc apply -f neutron-switch-config.yaml -n openstack
+oc describe secret neutron-switch-config -n openstack
 ```
 
 ---
 
+#### 3. Configure and Generate Deployment YAML
 
-#### 3. Node Network Config Policies (NNCP)
+Edit the Helm values file to confirm NICs, VLANs, IPs, storage device paths,
+and VIPs for this environment. Replace `<persistent-disk-identifier>` in
+`storage.deviceClasses[*].devicePath` with real `/dev/disk/by-path/` paths
+before generating.
 
 ```bash
+vi helm/rhoso18-openstack/values.yaml
+```
 
-# For each worker node
-oc get nodes -l node-role.kubernetes.io/worker -o jsonpath="{.items[*].metadata.name}"
+Generate all deployment manifests:
 
-# Apply NNCP config
-rhoso18-openstack-on-openshift/control-plane/networking/
-#oc apply node network configuration policy according to your network
-oc apply -f control-plane/networking/nncp-master-0.yaml
-oc apply -f control-plane/networking/nncp-master-1.yaml
-oc apply -f control-plane/networking/nncp-master-2.yaml
+```bash
+helm template rhoso18-openstack helm/rhoso18-openstack/ \
+  --values helm/rhoso18-openstack/values.yaml \
+  --output-dir generated/
+```
 
+The `generated/` directory is created automatically and is excluded from Git.
+
+---
+
+#### 4. Node Network Configuration Policies (NNCP)
+
+```bash
+oc apply -f generated/rhoso18-openstack/templates/networking/nncp.yaml
 oc get nncp -w
 ```
 
----
-
-#### 4. Apply MetalLB, NAD & IP Pools
+Wait until all three NNCPs show `Available` before proceeding.
 
 ```bash
-#oc apply network attach definition based on your netwok
-oc apply -f control-plane/networking/openstack-net-attach-def.yaml
+oc get nnce
+```
+
+---
+
+#### 5. Apply MetalLB, NAD & IP Pools
+
+```bash
+oc apply -f generated/rhoso18-openstack/templates/networking/net-attach-def.yaml
 oc get net-attach-def -n openstack
 
-oc apply -f control-plane/networking/openstack-ipaddresspools.yaml
+oc apply -f generated/rhoso18-openstack/templates/networking/ipaddresspools.yaml
 oc get ipaddresspool -n metallb-system
 oc describe ipaddresspool -n metallb-system
 
-oc apply -f control-plane/networking/openstack-l2advertisement.yaml
-oc get L2Advertisement -n metallb-system
+oc apply -f generated/rhoso18-openstack/templates/networking/l2advertisement.yaml
+oc get l2advertisement -n metallb-system
 ```
 
-###### Enable Global IP Forwarding (if using OVNKubernetes)
+###### Enable Global IP Forwarding (OVNKubernetes)
 
 ```bash
 oc get network.operator cluster --output=jsonpath='{.spec.defaultNetwork.type}'
 
-oc patch network.operator cluster -p '{"spec":{"defaultNetwork":{"ovnKubernetesConfig":{"gatewayConfig":{"ipForwarding": "Global"}}}}}' --type=merge
+oc patch network.operator cluster \
+  -p '{"spec":{"defaultNetwork":{"ovnKubernetesConfig":{"gatewayConfig":{"ipForwarding":"Global"}}}}}' \
+  --type=merge
 ```
 
 ---
 
-#### 5.  Configure LVM Storage
+#### 6. Configure LVM Storage
+
+Apply node labels so the LVMCluster nodeSelector matches the correct disks on
+each node:
 
 ```bash
-
-oc apply -f storage/lvms-install.yaml
-oc get csv -n openshift-storage -o custom-columns=Name:.metadata.name,Phase:.status.phase
-
-oc apply -f storage/node_labels.yaml
+oc apply -f prerequisites/storage/node_labels.yaml
 oc get nodes --show-labels
+```
 
-# Apply LVM config per node
-oc apply -f storage/lvmclusterCR.yaml
+Apply the LVMCluster:
+
+```bash
+oc apply -f generated/rhoso18-openstack/templates/storage/lvmcluster.yaml
 oc get lvmcluster -n openshift-storage
-
 oc get pods -n openshift-storage -o wide | grep vg-manager
 ```
 
----
-
-
-#### 6.  Deploy OpenStack Control Plane
+Confirm the StorageClass exists before applying the control plane:
 
 ```bash
-#oc apply switch configuration for network generic switch
-oc apply -f control-plane/ngs/ngs_config.yaml
+oc get storageclass lvms-local-storage-oac
+```
 
-#Commands to view the OpenStackControlPlane CRD definition and specification
-oc describe crd openstackcontrolplane
-oc explain openstackcontrolplane.spec
+---
 
-#oc apply control plane configuration
-oc create -f control-plane/openstack_control_plane.yaml -n openstack
+#### 7. Deploy OpenStack Control Plane
+
+```bash
+oc apply -f generated/rhoso18-openstack/templates/control-plane/openstack-control-plane.yaml -n openstack
 oc get openstackcontrolplanes -n openstack
 
-#oc apply DNS for baremetal ironic configuration
-oc apply -f control-plane/dnsmasq-dns-ironic.yaml
+oc apply -f generated/rhoso18-openstack/templates/control-plane/dnsmasq-dns-ironic.yaml
+```
 
+Verify the deployment from inside the openstackclient pod:
+
+```bash
 oc get pods -n openstack | grep -i openstackclient
 oc rsh -n openstack openstackclient
 
@@ -136,10 +173,9 @@ openstack token issue
 
 ---
 
-#### 7. (Post-Install) Create an Ironic-Provisioning Network & Subnet in OpenStack pod
+#### 8. (Post-Install) Create Ironic Provisioning Network
 
 ```bash
-
 oc rsh -n openstack openstackclient
 
 # Create a shared provider network for Ironic provisioning and cleaning traffic
@@ -147,26 +183,37 @@ openstack network create \
   --provider-network-type <network_type> \
   --provider-segment <vlan_id> \
   --provider-physical-network <provider_physical_network> \
-  --share <network_name>
+  --share \
+  <network_name>
 
-# Create the Ironic provisioning subnet with DHCP enabled for baremetal PXE and cleaning workflows
+# Create the Ironic provisioning subnet with DHCP enabled for PXE boot
 openstack subnet create \
   --network <network_name> \
   --subnet-range <network_cidr> \
   --ip-version 4 \
   --gateway <gateway_ip> \
   --allocation-pool start=<start_ip>,end=<end_ip> \
-  --dhcp <subnet_name>
-  --dns-nameserver <dns_ip>
+  --dhcp \
+  --dns-nameserver <dns_ip> \
+  <subnet_name>
 
-# Create a router and attach the Ironic provisioning subnet to the router
-openstack router create provisioning-router
-openstack router add subnet provisioning-router ironic-provisioning-subnet
+# Create a router and attach the provisioning subnet
+openstack router create <router_name>
+openstack router add subnet <router_name> <subnet_name>
 
-# Reapply control plane (after ironic provisioning network exists)
-Update the Ironic network configuration in openstack_control_plane.yaml by replacing all instances of <ironic_network_uuid>.
+# Retrieve the network UUID for the next step
+openstack network show <network_name> -f value -c id
+```
 
-oc apply -f control-plane/openstack_control_plane.yaml -n openstack
+Update `openstack.ironic.networkUUID` in `helm/rhoso18-openstack/values.yaml`
+with the UUID from the last command. Regenerate and reapply the control plane:
+
+```bash
+helm template rhoso18-openstack helm/rhoso18-openstack/ \
+  --values helm/rhoso18-openstack/values.yaml \
+  --output-dir generated/
+
+oc apply -f generated/rhoso18-openstack/templates/control-plane/openstack-control-plane.yaml -n openstack
 ```
 
 ---
