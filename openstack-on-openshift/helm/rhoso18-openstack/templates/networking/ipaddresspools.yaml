@@ -1,0 +1,44 @@
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: ctlplane
+  namespace: {{ .Values.metallb.namespace }}
+spec:
+  addresses:
+    - {{ .Values.networks.ctlplane.metallbPool }}
+  autoAssign: true
+  avoidBuggyIPs: false
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: internalapi
+  namespace: {{ .Values.metallb.namespace }}
+spec:
+  addresses:
+    - {{ .Values.networks.internalapi.metallbPool }}
+  autoAssign: true
+  avoidBuggyIPs: false
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: tenant
+  namespace: {{ .Values.metallb.namespace }}
+spec:
+  addresses:
+    - {{ .Values.networks.tenant.metallbPool }}
+  autoAssign: true
+  avoidBuggyIPs: false
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: ironic
+  namespace: {{ .Values.metallb.namespace }}
+spec:
+  addresses:
+    - {{ .Values.networks.ironic.metallbPool }}
+  autoAssign: true
+  avoidBuggyIPs: false

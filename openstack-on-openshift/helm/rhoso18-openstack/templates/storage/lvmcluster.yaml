@@ -1,0 +1,31 @@
+{{- $v := .Values }}
+apiVersion: lvm.topolvm.io/v1alpha1
+kind: LVMCluster
+metadata:
+  name: my-lvmcluster
+  namespace: {{ $v.storage.namespace }}
+spec:
+  storage:
+    deviceClasses:
+{{- range $v.storage.deviceClasses }}
+      - name: {{ .name }}
+        {{- if .default }}
+        default: {{ .default }}
+        {{- end }}
+        fstype: {{ .fstype }}
+        nodeSelector:
+          matchLabels:
+            {{ .nodeLabelKey }}: {{ .nodeLabelValue }}
+        deviceSelector:
+          paths:
+              # Use a persistent disk path to prevent device name changes after reboot; replace with actual disk identifier.
+            - {{ .devicePath }}
+        thinPoolConfig:
+          name: {{ .thinPool.name }}
+          sizePercent: {{ .thinPool.sizePercent }}
+          overprovisionRatio: {{ .thinPool.overprovisionRatio }}
+          chunkSize: {{ .thinPool.chunkSize }}
+          chunkSizeCalculationPolicy: {{ .thinPool.chunkSizeCalculationPolicy }}
+          metadataSize: {{ .thinPool.metadataSize }}
+          metadataSizeCalculationPolicy: {{ .thinPool.metadataSizeCalculationPolicy }}
+{{- end }}
